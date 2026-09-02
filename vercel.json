@@ -1,0 +1,5 @@
+{
+  "installCommand": "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile",
+  "buildCommand": "cd apps/mobile && npx expo export --platform web",
+  "outputDirectory": "apps/mobile/dist"
+}

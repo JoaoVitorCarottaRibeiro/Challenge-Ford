@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Ford Pickup Intel",
+    "slug": "ford-pickup-intel",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "fordpickupintel",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#0a0f1e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.fiap.fordpickupintel"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0f1e"
+      },
+      "package": "com.fiap.fordpickupintel"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-asset"
+    ]
+  }
+}

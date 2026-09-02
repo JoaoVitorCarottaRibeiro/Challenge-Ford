@@ -1,0 +1,156 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { useAuth } from '@/context/AuthContext'
+import { useTheme } from 'next-themes'
+import {
+  LayoutDashboard, Car, GitCompare, Sparkles,
+  LogOut, Sun, Moon, ChevronRight, ChevronUp
+} from 'lucide-react'
+
+const navItems = [
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/vehicles', label: 'Veículos', icon: Car },
+  { href: '/compare', label: 'Comparativo', icon: GitCompare },
+  { href: '/extract', label: 'Extrair Specs', icon: Sparkles },
+]
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { user, logout, isLoading } = useAuth()
+  const { theme, setTheme } = useTheme()
+  const router = useRouter()
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login')
+    }
+  }, [user, isLoading, router])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: 'var(--background)' }}>
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex min-h-screen" style={{ backgroundColor: 'var(--background)' }}>
+      <aside className="w-64 flex flex-col border-r fixed h-full"
+        style={{ backgroundColor: 'var(--card)', borderColor: 'var(--card-border)' }}>
+
+        <div className="p-6 border-b" style={{ borderColor: 'var(--card-border)' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: 'var(--primary)' }}>
+              <Car className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>
+                Ford Pickup Intel
+              </p>
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                Inteligência Competitiva
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <nav className="flex-1 p-4 space-y-1">
+          {navItems.map((item) => {
+            const Icon = item.icon
+            const isActive = typeof window !== 'undefined' && window.location.pathname === item.href
+            return (
+              <Link key={item.href} href={item.href}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group"
+                style={{
+                  backgroundColor: isActive ? 'var(--primary)' : 'transparent',
+                  color: isActive ? 'white' : 'var(--muted)'
+                }}>
+                <Icon className="w-4 h-4" />
+                {item.label}
+                <ChevronRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+              </Link>
+            )
+          })}
+        </nav>
+
+        <div className="p-4 border-t relative" style={{ borderColor: 'var(--card-border)' }} ref={profileRef}>
+          {profileOpen && (
+            <div className="absolute left-4 right-4 bottom-full mb-2 rounded-xl border overflow-hidden shadow-lg"
+              style={{ backgroundColor: 'var(--card)', borderColor: 'var(--card-border)' }}>
+              <div className="p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--muted)' }}>
+                  Aparência
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setTheme('light')}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: theme === 'light' ? 'var(--primary)' : 'var(--background)',
+                      color: theme === 'light' ? 'white' : 'var(--muted)'
+                    }}>
+                    <Sun className="w-3.5 h-3.5" /> Claro
+                  </button>
+                  <button
+                    onClick={() => setTheme('dark')}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: theme === 'dark' ? 'var(--primary)' : 'var(--background)',
+                      color: theme === 'dark' ? 'white' : 'var(--muted)'
+                    }}>
+                    <Moon className="w-3.5 h-3.5" /> Escuro
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={() => { logout(); router.push('/login') }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium border-t transition-colors text-red-500"
+                style={{ borderColor: 'var(--card-border)' }}>
+                <LogOut className="w-4 h-4" />
+                Sair
+              </button>
+            </div>
+          )}
+
+          <button
+            onClick={() => setProfileOpen(o => !o)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors"
+            style={{ backgroundColor: profileOpen ? 'var(--background)' : 'transparent' }}>
+            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold"
+              style={{ backgroundColor: 'var(--primary)' }}>
+              {user.email[0].toUpperCase()}
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-xs font-medium truncate" style={{ color: 'var(--foreground)' }}>{user.email}</p>
+              <p className="text-xs capitalize" style={{ color: 'var(--muted)' }}>{user.role}</p>
+            </div>
+            <ChevronUp className="w-3.5 h-3.5 shrink-0 transition-transform"
+              style={{ color: 'var(--muted)', transform: profileOpen ? 'rotate(0deg)' : 'rotate(180deg)' }} />
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 ml-64 p-8">
+        {children}
+      </main>
+    </div>
+  )
+}
