@@ -1,11 +1,13 @@
 import bcrypt from 'bcryptjs'
 import jwt, { SignOptions } from 'jsonwebtoken'
-import { AppDataSource, User, AuditLog } from '@ford-intel/database'
+import { AppDataSource, User } from '@ford-intel/database'
 import { FastifyRequest } from 'fastify'
+import { config } from '../config/env'
+import { logAudit } from './audit'
 
-const JWT_SECRET = process.env.JWT_SECRET!
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h'
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d'
+const JWT_SECRET = config.jwtSecret
+const JWT_EXPIRES_IN = config.jwtExpiresIn
+const JWT_REFRESH_EXPIRES_IN = config.jwtRefreshExpiresIn
 const MAX_FAILED_ATTEMPTS = 5
 const LOCK_DURATION_MINUTES = 15
 
@@ -48,19 +50,11 @@ export async function authenticateUser(
   req: FastifyRequest
 ): Promise<{ accessToken: string; refreshToken: string; role: string }> {
   const userRepo = AppDataSource.getRepository(User)
-  const auditRepo = AppDataSource.getRepository(AuditLog)
 
   const user = await userRepo.findOne({ where: { email } })
 
   if (!user || !user.isActive) {
-    await auditRepo.save(auditRepo.create({
-      action: 'login_failed',
-      ip: req.ip,
-      userAgent: req.headers['user-agent']?.substring(0, 255),
-      payload: JSON.stringify({ email }),
-      status: 'error',
-      errorMessage: 'Usuário não encontrado ou inativo'
-    } as any))
+    await logAudit('login_failed', req, 'error', { email }, 'Usuário não encontrado ou inativo')
     throw new Error('Credenciais inválidas')
   }
 
@@ -74,19 +68,15 @@ export async function authenticateUser(
 
   if (!passwordValid) {
     user.failedAttempts += 1
+    // Não zera o contador ao bloquear — senão, passada a janela de 15 min, o
+    // atacante ganha um lote novo de 5 tentativas. O contador só volta a zero
+    // num login bem-sucedido.
     if (user.failedAttempts >= MAX_FAILED_ATTEMPTS) {
       user.lockedUntil = new Date(Date.now() + LOCK_DURATION_MINUTES * 60 * 1000)
-      user.failedAttempts = 0
     }
     await userRepo.save(user)
-    await auditRepo.save(auditRepo.create({
-      action: 'login_failed',
-      ip: req.ip,
-      userAgent: req.headers['user-agent']?.substring(0, 255),
-      payload: JSON.stringify({ email }),
-      status: 'error',
-      errorMessage: `Senha inválida. Tentativa ${user.failedAttempts}/${MAX_FAILED_ATTEMPTS}`
-    } as any))
+    await logAudit('login_failed', req, 'error', { email },
+      `Senha inválida. Tentativa ${user.failedAttempts}/${MAX_FAILED_ATTEMPTS}`)
     throw new Error('Credenciais inválidas')
   }
 
@@ -97,13 +87,7 @@ export async function authenticateUser(
 
   const tokens = generateTokens(user)
 
-  await auditRepo.save(auditRepo.create({
-    action: 'login_success',
-    ip: req.ip,
-    userAgent: req.headers['user-agent']?.substring(0, 255),
-    payload: JSON.stringify({ email, role: user.role }),
-    status: 'success'
-  } as any))
+  await logAudit('login_success', req, 'success', { email, role: user.role })
 
   return { ...tokens, role: user.role }
 }

@@ -42,6 +42,70 @@ Quando um PDF tem uma página inteira por versão (ex.: básica, intermediária,
 
 Isso é uma correção de pipeline, não um remendo pontual — vale para qualquer PDF multi-versão processado daqui pra frente.
 
+## Extração: camada determinística antes da IA (refatorado nesta sessão)
+
+A extração deixou de depender só de IA para os campos objetivos. Fluxo atual em
+`apps/api/src/services/extractor.ts` + `apps/api/src/services/specParser.ts`:
+
+1. **Transcrição do PDF cacheada** (`transcribePdf`) — a chamada multimodal ao Claude que
+   transforma o PDF em texto roda **no máximo uma vez por arquivo**, cacheada em disco por hash
+   do conteúdo em `apps/api/pdfs/.cache/<sha256>.txt` (gitignored). Reextrações do mesmo PDF, ou
+   de outra versão/trim que usa o mesmo arquivo, reusam o texto sem nova chamada de IA.
+2. **Parser determinístico** (`parseHeadlineSpecs`, sem IA) — regex sobre o texto transcrito
+   extrai ~13 campos objetivos (potência, torque com conversão kgf·m→Nm, cilindrada, marchas,
+   câmbio automático/manual, diesel/flex, turbo/biturbo, 4x4 com reduzida, garantia, preço,
+   airbags, peso em ordem de marcha, aro, consumo). Regras propositalmente conservadoras — na
+   dúvida, não preenche (fica pra IA cobrir).
+3. **IA só no que sobrou nulo**, por categoria, alimentada com o texto já cacheado (não faz nova
+   chamada multimodal). Sem `ANTHROPIC_API_KEY` configurada, esse passo é pulado inteiro — a
+   extração roda 100% determinística e a resposta do `/extract` vem com `aiEnabled:false` +
+   `aiDisabled:true` (o web mostra um aviso "IA desabilitada — só specs-base" ao lado do badge de fonte).
+4. **Proveniência por campo** — nova coluna `field_provenance` (CLOB JSON, `VehicleSpec`) grava
+   `"deterministic"` ou `"ai"` por campo preenchido. Exposta na resposta do `/extract` e no
+   tooltip do `SourceBadge`.
+
+## Extração via PDF sem marca/modelo/versão — identificação automática
+
+A tela `/extract` tem duas abas independentes: "Buscar via IA/Web" (dropdown do catálogo do
+segmento) e "Enviar ficha em PDF" (só o arquivo é obrigatório — marca/modelo/versão/ano ficam
+opcionais). Quando vem PDF sem esses campos, `apps/api/src/routes/vehicles.ts` chama:
+
+1. `transcribePdf` (cacheada) pra ter o texto da ficha.
+2. `identifyVehicleFromText` (nova, em `extractor.ts`) — pede à IA marca/modelo/versão/ano a
+   partir do texto. Marca+modelo bastam pra aceitar; sem versão nomeada na fonte (comum em
+   lançamento de configuração única), o sistema rotula como `"Padrão"` em vez de rejeitar.
+3. Se versão/ano ainda faltarem, busca fontes web da marca (`collectWebSources`) e tenta
+   identificar de novo com o texto combinado **web primeiro, ficha depois** — importante porque a
+   ficha sozinha já pode passar de milhares de caracteres, e um corte de tamanho no prompt que
+   colocasse o texto web depois dela descartaria o dado que faltava antes da IA nem ver.
+4. `fetchPage` (mesmo arquivo) agora também captura o `<title>` de cada página **separado** do
+   corpo, sem cortar — páginas de catálogo tipo iCarros costumam ser SPA (corpo raspado só traz
+   menu genérico dentro do limite de 6000 chars), mas o `<title>` vem denso e útil de verdade
+   (ex.: "BYD Shark 1.5T PHEV GS 4WD Auto 2027" = trim + tração + câmbio + ano numa linha só).
+   `INDEPENDENT_URLS` ganhou entradas do iCarros pra `nissan`/`fiat`/`byd` por causa disso — as
+   páginas oficiais dessas 3 marcas são SPA puro (corpo vazio via fetch server-side), não valeu a
+   pena incluir.
+5. O prompt de `extractCategory` também deixou de exigir confirmação **literal** da fonte pra
+   campos booleanos — pode inferir com confiança quando o tipo de powertrain já deixa claro (ex.:
+   veículo 100% PHEV descrito na fonte → câmbio automático, mesmo que a ficha não use essa
+   palavra). Continua proibido misturar dado de outra versão/trim do mesmo documento.
+
+Sem PDF nem marca/modelo/versão/ano nenhum → `400`. Com PDF mas nem marca nem modelo identificáveis
+→ `422` pedindo preenchimento manual. Toda essa cadeia (da identificação até a extração) roda dentro
+de um único try/catch na rota — antes a busca do veículo existente no Oracle ficava fora de
+qualquer captura e um tropeço ali virava 500 sem nenhuma linha na auditoria.
+
+Confiabilidade: `extractCategory` nunca lança — `Promise.allSettled` por categoria (uma falha não
+derruba as outras), 1 retry em JSON malformado, `max_tokens` calculado pelo tamanho da categoria
+(a truncar categorias grandes como "Conectividade e Multimídia" era a causa do bug antigo de
+categoria inteira sumir em silêncio).
+
+**Gotcha de teste**: se `/extract` voltar 500 rápido (sem log de erro na auditoria — `GET
+/api/admin/audit-logs`) e o payload tiver acento (`"categories":["Iluminação"]` etc.), suspeite
+primeiro de **encoding do shell**, não do código — `curl -d '...com acento...'` via Bash no
+Windows corrompe o Content-Length e o Fastify recusa com `FST_ERR_CTP_INVALID_CONTENT_LENGTH`.
+Escreva o JSON num arquivo UTF-8 e use `curl --data-binary @arquivo.json` em vez de `-d '...'` inline.
+
 ## O gatekeeper escondido do `GET /vehicles`
 
 ```ts
@@ -53,22 +117,30 @@ Um veículo só aparece nas listagens se **o campo potência especificamente** e
 
 | Veículo | Ano | Fonte | Campos preenchidos |
 |---|---|---|---|
-| Ford Ranger Raptor | 2026 | pdf_oficial | 109 |
-| Toyota Hilux SRX | 2025 | pdf_oficial | 68 |
-| Volkswagen Amarok Highline V6 | 2020 | pdf_oficial | 37 |
-| Volkswagen Amarok Extreme | 2020 | pdf_oficial | 32 |
-| Volkswagen Amarok Comfortline | 2020 | pdf_oficial | 32 |
-| Chevrolet S10 High Country | 2025 | web_scraping | 29 |
-| Mitsubishi L200 Triton Katana | 2026 | pdf_oficial | 111 |
-| Nissan Frontier PRO-4X | 2025 | pdf_oficial | 83 |
-| Fiat Titano Ranch | 2026 | pdf_oficial | 113 |
-| BYD Shark GS | 2026 | pdf_oficial | 74 |
+| Ford Ranger Raptor | 2026 | pdf_oficial | 93 |
+| Toyota Hilux SRX | 2025 | pdf_oficial | 65 |
+| Volkswagen Amarok Highline V6 | 2020 | pdf_oficial | 34 |
+| Volkswagen Amarok Extreme | 2020 | pdf_oficial | 29 |
+| Volkswagen Amarok Comfortline | 2020 | pdf_oficial | 29 |
+| Chevrolet S10 High Country | 2025 | web_scraping | 27 |
+| Mitsubishi L200 Triton Katana | 2026 | pdf_oficial | 108 |
+| Nissan Frontier PRO-4X | 2025 | pdf_oficial | 82 |
+| Fiat Titano Ranch | 2026 | pdf_oficial | 110 |
+| BYD Shark GS | 2026 | pdf_oficial | 71 |
 
 PDFs curados vivem em `apps/api/pdfs/` (git-ignorado o subdiretório `uploads/`, mas os PDFs oficiais curados estão versionados). Mapa completo em `PDF_MAP` dentro de `apps/api/src/routes/vehicles.ts`.
 
-## Features implementadas nesta sessão
+`brand`/`model`/`version` agora são normalizados na escrita (`apps/api/src/services/normalize.ts`) —
+strings inteiras em CAIXA ALTA viram Title Case, siglas curtas/com dígito (BYD, GS, SRX, S10, PRO-4X)
+não são tocadas. Motivo: o `WHERE` do Oracle é case-sensitive, então uma extração com marca digitada
+diferente do que já estava salvo (ex.: "Ford" vs. "FORD") cria um veículo duplicado, só escondido pelo
+dedup do `GET /vehicles` — não pelo banco. A Raptor já estava salva como `"FORD"/"RAPTOR"` (de antes
+desta normalização existir); foi recriada via `/extract` como `"Ford"/"Raptor"` e a linha antiga foi
+apagada. Se voltar a ver duplicata de um veículo, é esse o motivo mais provável.
 
-- **Upload de PDF arbitrário** no `/extract` (campo `pdfBase64`, base64 dentro do JSON já assinado por HMAC — sem precisar de multipart/dependência nova).
+## Features implementadas em sessões anteriores
+
+- **Upload de PDF arbitrário** no `/extract` (campo `pdfBase64`, base64 dentro do JSON — sem precisar de multipart/dependência nova).
 - **Seleção livre de categorias** (`categories: string[]` no `/extract`) — atende ao requisito literal do desafio de deixar o usuário definir quais atributos quer pesquisar; também usado para forçar reextração sem depender de upload.
 - **Login redesenhado** estilo B3 (split-screen, sempre claro independente do tema do app).
 - **Tela de Veículos**: logos de marca reais via Simple Icons (`cdn.simpleicons.org`, com fallback pra letra se a imagem falhar) + filtro de marcas em chips.
@@ -76,22 +148,68 @@ PDFs curados vivem em `apps/api/pdfs/` (git-ignorado o subdiretório `uploads/`,
 - **Menu lateral**: perfil colapsado num único gatilho, abre popover com tema claro/escuro + sair.
 - Emojis removidos de toda a interface, substituídos por ícones lucide-react.
 
+## Segurança — endurecida nesta sessão (minimalista, honesta)
+
+O HMAC de escrita foi **removido por completo** (`middlewares/hmac.ts` deletado, sem `X-Signature`
+em lugar nenhum do `apps/web`). Motivo: o segredo (`NEXT_PUBLIC_HMAC_SECRET`) ia embutido no bundle
+do cliente — qualquer um extraía do JS e assinava requisições à vontade. Não protegia nada; só dava
+a impressão de proteger. Escrita agora depende só do que de fato protege: **JWT Bearer +
+`requireRole('admin')`**.
+
+O que mudou:
+- **`apps/api/src/config/env.ts`** — módulo único que lê e valida toda env no boot (`JWT_SECRET`
+  ≥32 chars, `ENCRYPTION_KEY` decodifica pra 32 bytes exatos — hex 64 ou base64 44, `API_KEY`
+  ≥16 chars, `DB_*` presentes). Falha = `process.exit(1)` com a lista de problemas, não um erro
+  obscuro em runtime. Todo `process.env.X!` espalhado foi substituído por `config.*`.
+- **Cookies de sessão** (`apps/web/lib/auth-cookies.ts`): `sameSite:'strict'` sempre, `secure` em
+  produção. `httpOnly` continua impossível de setar via JS puro (sem cookie do `js-cookie`) — é o
+  tradeoff aceito do caminho minimalista, sem BFF/proxy.
+- **`data-source.ts`**: `synchronize` (auto-DDL) só roda fora de `production`, ou em produção com
+  `DB_SYNC=true` ligado por um boot só.
+- **Fastify**: `trustProxy:true` (rate-limit/lockout/audit ficavam com o IP do proxy sem isso, se um
+  dia for atrás de Render/Vercel), rate-limit dedicado 5/min em `/auth/login` e `/auth/register`
+  (achei e corrigi de quebra um bug real: o rate-limit excedido devolvia **500** em vez de 429 —
+  o `errorResponseBuilder` custom não setava `statusCode`), `PUBLIC_ROUTES` com match exato de
+  pathname em vez de `startsWith` (evitava bypass tipo `/api/auth/login-x`).
+- **Lockout de login** (`services/auth.ts`): antes, ao bloquear a conta o contador de tentativas
+  zerava — passada a janela de 15min, o atacante ganhava um lote novo de 5. Agora só zera em login
+  bem-sucedido.
+- **`.dockerignore`** novo na raiz — `.env` nunca mais entra na imagem Docker (o `Dockerfile` fazia
+  `COPY apps/api ./apps/api` sem isso).
+- `.env.example` (raiz e `apps/api/`) sem credenciais reais — só placeholders + instruções
+  `openssl rand -hex N`.
+- Dependências mortas removidas: `@google/generative-ai`, `@fastify/jwt` (nenhuma nunca foi importada).
+
+**Não mudou / ainda pendente**: `apps/mobile/services/api.ts` ainda tem o mesmo bloco de assinatura
+HMAC + um secret hardcoded no código (`ford-intel-hmac-secret-2025`) — mobile ficou fora do escopo
+desta sessão (foco foi `apps/web`). A senha do Oracle FIAP (`DB_USER=rm558396`/`DB_PASS=190305`)
+ficou commitada no `.env.example` da raiz desde o commit inicial — já tirada dos arquivos atuais,
+mas ainda existe no histórico do git; reescrever a história (ou não) é decisão do time, não foi
+feito sozinho porque afeta o clone de quem mais estiver no repo.
+
 ## Como rodar localmente
 
 ```bash
 pnpm install          # na raiz
-pnpm dev:api          # apps/api/.env precisa estar preenchido (DB_*, ANTHROPIC_API_KEY, HMAC_SECRET, JWT_SECRET, ENCRYPTION_KEY, API_KEY)
-pnpm dev:web          # apps/web/.env.local precisa de NEXT_PUBLIC_API_URL e NEXT_PUBLIC_HMAC_SECRET (== HMAC_SECRET da API)
+pnpm dev:api          # apps/api/.env precisa estar preenchido — ver apps/api/.env.example
+pnpm dev:web          # apps/web/.env.local precisa só de NEXT_PUBLIC_API_URL (HMAC saiu do web)
 ```
-- `node-oracledb` roda em modo Thin — **não precisa instalar Oracle Instant Client**, ao contrário do que o README ainda sugere.
+- `node-oracledb` roda em modo Thin — não precisa instalar Oracle Instant Client.
 - Primeiro usuário: `POST /api/auth/register` com `adminKey` = valor de `API_KEY` no `.env`.
 - `pnpm approve-builds --all` se o `pnpm install` travar em `ERR_PNPM_IGNORED_BUILDS`.
+- A API agora **valida a env no boot** (`config/env.ts`) — se recusar a subir, a mensagem de erro
+  já diz exatamente qual variável está faltando ou fraca demais.
+- **Oracle FIAP é compartilhado pelo time** (mesmo `DB_USER`) — se `/extract` ou qualquer escrita
+  começar a falhar sem padrão claro, confira antes se outra pessoa do time (ou uma instância
+  deployada) está com a API local ligada ao mesmo tempo, disputando o limite de conexão.
 
 ## Pendências / próximos passos discutidos (nada implementado ainda)
 
-- Não existe tela de "adicionar veículo" nem de edição de spec — hoje a única porta de entrada é `/extract`, com marca/modelo/versão presos a um dropdown fixo (`VEHICLE_OPTIONS` no código), não texto livre.
+- Não existe tela de "adicionar veículo" nem de edição de spec. `/extract` agora tem duas portas de entrada: a aba "Buscar via IA/Web" continua com marca/modelo/versão presos a um dropdown fixo (`VEHICLE_OPTIONS` no código, hoje com as 8 marcas do segmento), mas a aba "Enviar ficha em PDF" já é texto livre + identificação automática (ver seção acima) — cobre o requisito de entrada livre pra quem chega com um PDF.
 - `POST /api/vehicles` existe na API mas é código morto — nenhuma tela chama.
 - `GET /api/compare` está documentado no README mas não está implementado (o comparativo do web é 100% client-side).
 - `apps/api/src/services/updater.ts` existe mas está vazio — pensado para reextração periódica.
 - Ideia discutida (não implementada): usar a Tabela FIPE (API pública `parallelum.com.br/fipe`) como catálogo de identidade limpo (marca/modelo/ano) para alimentar autocomplete — não tem dado técnico, só serve pra evitar erro de digitação/duplicata.
-- HMAC do web (`NEXT_PUBLIC_HMAC_SECRET`) fica embutido no bundle do cliente — funciona, mas enfraquece o propósito do HMAC (qualquer um pode extrair do JS). Não corrigido ainda.
+- Precisão de dado (ex.: torque da Hilux SRX vindo com casa decimal quebrada tipo 498,82 Nm em vez de 500) foi identificada mas deixada **fora de escopo de propósito** na sessão de segurança/extração — próximo passo natural.
+- Decisão pendente do time: reescrever ou não o histórico do git pra remover a credencial Oracle FIAP commitada no commit inicial (ver seção Segurança acima).
+- `apps/mobile` não recebeu a limpeza de HMAC feita no `apps/web` — mesmo padrão de correção se algum dia o mobile voltar a ser prioridade.

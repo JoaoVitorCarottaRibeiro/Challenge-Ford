@@ -8,6 +8,10 @@ const Vehicle_1 = require("./Vehicle");
 const VehicleSpec_1 = require("./VehicleSpec");
 const AuditLog_1 = require("./AuditLog");
 const User_1 = require("./User");
+// synchronize roda DDL (ALTER/CREATE) no boot. Em produção isso é perigoso contra
+// o Oracle compartilhado da FIAP — só liga fora de produção, ou explicitamente com
+// DB_SYNC=true por um boot quando há mudança de schema pra aplicar.
+const shouldSync = process.env.NODE_ENV !== 'production' || process.env.DB_SYNC === 'true';
 exports.AppDataSource = new typeorm_1.DataSource({
     type: 'oracle',
     host: process.env.DB_HOST,
@@ -15,7 +19,7 @@ exports.AppDataSource = new typeorm_1.DataSource({
     username: process.env.DB_USER,
     password: process.env.DB_PASS,
     sid: process.env.DB_SERVICE,
-    synchronize: true,
+    synchronize: shouldSync,
     logging: ['error'],
     entities: [Segment_1.Segment, Vehicle_1.Vehicle, VehicleSpec_1.VehicleSpec, AuditLog_1.AuditLog, User_1.User],
 });

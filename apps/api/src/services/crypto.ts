@@ -1,9 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
+import { config } from '../config/env'
 
 const ALGORITHM = 'aes-256-gcm'
-const KEY = Buffer.from(
-  (process.env.ENCRYPTION_KEY || '').padEnd(32, '0').substring(0, 32)
-)
+// Chave de 32 bytes já validada no boot (hex de 64 ou base64 de 44 chars).
+const KEY = config.encryptionKey
 
 /**
  * Criptografa dados sensíveis com AES-256-GCM.

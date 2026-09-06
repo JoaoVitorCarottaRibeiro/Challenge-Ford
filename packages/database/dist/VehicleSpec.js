@@ -172,6 +172,9 @@ let VehicleSpec = class VehicleSpec {
     // Rastreabilidade das fontes
     sourceUrls;
     searchQueries;
+    // JSON { "<campo>": "deterministic" | "ai" } — qual campo veio do parser
+    // determinístico (regex sobre o PDF transcrito) vs. preenchido pela IA.
+    fieldProvenance;
     // Metadados
     source;
     status;
@@ -755,6 +758,10 @@ __decorate([
     (0, typeorm_1.Column)({ name: 'search_queries', type: 'clob', nullable: true }),
     __metadata("design:type", String)
 ], VehicleSpec.prototype, "searchQueries", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'field_provenance', type: 'clob', nullable: true }),
+    __metadata("design:type", String)
+], VehicleSpec.prototype, "fieldProvenance", void 0);
 __decorate([
     (0, typeorm_1.Column)({ type: 'varchar2', length: 50, default: 'ia_generated' }),
     __metadata("design:type", String)

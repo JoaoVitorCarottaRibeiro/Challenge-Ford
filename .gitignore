@@ -5,6 +5,8 @@ node_modules/
 *.log
 .DS_Store
 apps/api/pdfs/uploads/
+apps/api/pdfs/.cache/
 .vscode/
 .idea/
+.claude/
 Thumbs.db

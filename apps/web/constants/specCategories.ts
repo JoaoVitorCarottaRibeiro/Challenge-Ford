@@ -209,9 +209,12 @@ export const HERO_FIELDS: SpecField[] = [
   { key: 'anosGarantia', label: 'Garantia', type: 'number', unit: 'anos' },
 ]
 
-export const SOURCE_LABEL: Record<string, { text: string; color: string }> = {
+export const SOURCE_LABEL: Record<string, { text: string; color: string; title?: string }> = {
   db_cache:      { text: 'Retornado do banco',              color: '#10b981' },
-  pdf_oficial:   { text: 'Ficha técnica oficial (PDF)',     color: '#3b82f6' },
+  pdf_oficial:   {
+    text: 'Ficha técnica oficial (PDF)', color: '#3b82f6',
+    title: 'PDF curado foi a base. Campos objetivos vêm de leitura direta do documento; a IA pode ter preenchido campos de cauda (equipamentos) quando o PDF não deixava claro.'
+  },
   pdf_upload:    { text: 'PDF enviado por você',            color: '#0ea5e9' },
   web_scraping:  { text: 'Fontes públicas na web',          color: '#f59e0b' },
   ia_generated:  { text: 'Estimado pelo agente de IA (sem fonte verificada)', color: '#8b5cf6' },

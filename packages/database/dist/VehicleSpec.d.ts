@@ -143,6 +143,7 @@ export declare class VehicleSpec {
     bagageiroTetoLong: boolean;
     sourceUrls: string;
     searchQueries: string;
+    fieldProvenance: string;
     source: string;
     status: string;
     sourceUrl: string;

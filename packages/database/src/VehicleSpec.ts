@@ -449,6 +449,11 @@ export class VehicleSpec {
   @Column({ name: 'search_queries', type: 'clob', nullable: true })
   searchQueries!: string
 
+  // JSON { "<campo>": "deterministic" | "ai" } — qual campo veio do parser
+  // determinístico (regex sobre o PDF transcrito) vs. preenchido pela IA.
+  @Column({ name: 'field_provenance', type: 'clob', nullable: true })
+  fieldProvenance!: string
+
   // Metadados
   @Column({ type: 'varchar2', length: 50, default: 'ia_generated' })
   source!: string

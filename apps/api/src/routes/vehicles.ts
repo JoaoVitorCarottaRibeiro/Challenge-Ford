@@ -3,10 +3,10 @@ import { DeepPartial } from 'typeorm'
 import { AppDataSource } from '@ford-intel/database'
 import { Vehicle } from '@ford-intel/database'
 import { VehicleSpec } from '@ford-intel/database'
-import { extractVehicleSpecs } from '../services/extractor'
+import { extractVehicleSpecs, transcribePdf, identifyVehicleFromText, collectWebSources } from '../services/extractor'
 import { logAudit } from '../services/audit'
+import { normalizeVehicleIdentity } from '../services/normalize'
 import { authenticate, requireRole, AuthenticatedRequest } from '../middlewares/rbac'
-import { verifyHmac } from '../middlewares/hmac'
 import * as path from 'path'
 import * as fs from 'fs'
 import { randomUUID } from 'crypto'
@@ -21,8 +21,8 @@ function sanitizeFileName(name: string | undefined): string {
 }
 
 /**
- * Salva um PDF arbitrário enviado pelo usuário (base64, dentro do corpo já
- * assinado por HMAC) em disco, fora da pasta curada `pdfs/`, com nome
+ * Salva um PDF arbitrário enviado pelo usuário (base64, no corpo da requisição
+ * autenticada como admin) em disco, fora da pasta curada `pdfs/`, com nome
  * gerado aleatoriamente para evitar path traversal e colisão de arquivos.
  */
 function saveUploadedPdf(pdfBase64: string, originalName?: string): { path: string; displayName: string } {
@@ -82,8 +82,9 @@ function mapSpecsToEntity(s: Record<string, unknown>) {
   const n = (v: unknown): number | undefined => (v === null || v === undefined) ? undefined : Number(v)
 
   return {
-    sourceUrls:                     s['source_urls']    != null ? JSON.stringify(s['source_urls'])    : undefined,
-    searchQueries:                  s['search_queries'] != null ? JSON.stringify(s['search_queries']) : undefined,
+    sourceUrls:                     s['source_urls']       != null ? JSON.stringify(s['source_urls'])       : undefined,
+    searchQueries:                  s['search_queries']    != null ? JSON.stringify(s['search_queries'])    : undefined,
+    fieldProvenance:                s['field_provenance']  != null ? JSON.stringify(s['field_provenance'])  : undefined,
     pesoOrdemMarchaKg:              n(s['peso_ordem_marcha_kg']),
     cilindradaL:                    n(s['cilindrada_l']),
     potenciaCv:                     n(s['potencia_cv']),
@@ -277,7 +278,7 @@ export async function vehicleRoutes(app: FastifyInstance) {
   })
 
   app.post('/vehicles', {
-    preHandler: [authenticate, requireRole('admin'), verifyHmac],
+    preHandler: [authenticate, requireRole('admin')],
     schema: {
       body: {
         type: 'object',
@@ -294,10 +295,12 @@ export async function vehicleRoutes(app: FastifyInstance) {
       }
     }
   }, async (req: AuthenticatedRequest, reply) => {
-    const { brand, model, version, yearModel, yearModelEnd, isMidyear } = req.body as {
+    const body = req.body as {
       brand: string; model: string; version: string
       yearModel?: number; yearModelEnd?: number; isMidyear?: boolean
     }
+    const { brand, model, version } = normalizeVehicleIdentity(body)
+    const { yearModel, yearModelEnd, isMidyear } = body
 
     const vehicle = vehicleRepo.create({ brand, model, version, yearModel, yearModelEnd, isMidyear })
     await vehicleRepo.save(vehicle)
@@ -307,11 +310,15 @@ export async function vehicleRoutes(app: FastifyInstance) {
   })
 
   app.post('/extract', {
-    preHandler: [authenticate, requireRole('admin'), verifyHmac],
+    preHandler: [authenticate, requireRole('admin')],
     schema: {
       body: {
         type: 'object',
-        required: ['brand', 'model', 'version', 'yearModel'],
+        // Nada é obrigatório no nível do schema — marca/modelo/versão/ano só são
+        // exigidos de verdade quando NÃO vem PDF (checado no handler, já que o
+        // JSON Schema puro não expressa "obrigatório a menos que X"). Com PDF e
+        // sem esses campos, a identidade do veículo é descoberta a partir do
+        // próprio documento.
         properties: {
           brand:        { type: 'string', minLength: 1, maxLength: 100 },
           model:        { type: 'string', minLength: 1, maxLength: 100 },
@@ -331,28 +338,23 @@ export async function vehicleRoutes(app: FastifyInstance) {
       }
     }
   }, async (req: AuthenticatedRequest, reply) => {
-    const { brand, model, version, yearModel, yearModelEnd, isMidyear, pdfBase64, pdfFileName, categories } = req.body as {
-      brand: string; model: string; version: string
-      yearModel: number; yearModelEnd?: number; isMidyear?: boolean
+    const body = req.body as {
+      brand?: string; model?: string; version?: string
+      yearModel?: number; yearModelEnd?: number; isMidyear?: boolean
       pdfBase64?: string; pdfFileName?: string
       categories?: string[]
     }
+    let { brand, model, version, yearModel } = body
+    const { yearModelEnd, isMidyear, pdfBase64, pdfFileName, categories } = body
 
-    const existing = await vehicleRepo.findOne({
-      where: { brand, model, version, yearModel },
-      relations: ['spec']
-    })
-
-    const hasCategoryFilter = !!categories && categories.length > 0
-
-    // Um PDF enviado ou uma seleção de categorias mais restrita que o padrão
-    // são pedidos explícitos de (re)extração — não retornam do cache.
-    if (existing?.spec && !pdfBase64 && !hasCategoryFilter) {
-      await logAudit('extract', req, 'success', { brand, model, version, yearModel, source: 'db_cache' })
-      return reply.status(200).send({ vehicle: existing, spec: existing.spec, source: 'db_cache' })
+    if (!pdfBase64 && (!brand || !model || !version || !yearModel)) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Informe marca, modelo, versão e ano, ou envie uma ficha em PDF para identificação automática.'
+      })
     }
 
-    let pdfPath = findPdfPath(brand, model, version)
+    let pdfPath: string | null = null
     let pdfSourceType: 'oficial' | 'upload' = 'oficial'
     let pdfDisplayName: string | undefined
 
@@ -367,10 +369,87 @@ export async function vehicleRoutes(app: FastifyInstance) {
         await logAudit('extract', req, 'error', { brand, model, version, yearModel }, msg)
         return reply.status(400).send({ error: 'Upload inválido', message: msg })
       }
+
+      // PDF veio, mas o usuário não preencheu a identidade completa — descobre
+      // a partir do próprio documento antes de seguir. `transcribePdf` é
+      // cacheado por hash do arquivo, então a extração de specs mais abaixo
+      // reusa esse mesmo texto sem transcrever de novo.
+      if (!brand || !model || !version) {
+        let transcription = ''
+        try {
+          transcription = await transcribePdf(pdfPath)
+        } catch (err) {
+          console.error('[EXTRACT] Falha ao transcrever PDF pra identificação', err)
+        }
+        const identified = await identifyVehicleFromText(transcription)
+        brand = brand || identified.brand || undefined
+        model = model || identified.model || undefined
+        version = version || identified.version || undefined
+        yearModel = yearModel || identified.yearModel || undefined
+
+        // PDF sozinho pode não nomear versão/ano (ficha de configuração única,
+        // por ex.). Com marca já sabida, busca fontes web da marca — inclusive
+        // o <title> de páginas de catálogo, que costuma carregar justamente
+        // trim/tração/câmbio/ano numa linha só — e tenta identificar de novo
+        // com mais contexto antes de desistir.
+        if (brand && (!version || !yearModel)) {
+          try {
+            const { contents: webContents } = await collectWebSources(brand)
+            if (webContents.length > 0) {
+              // Web primeiro: é curto e costuma ter o dado que falta (ex.: título
+              // de página de catálogo) — se vier depois da ficha (que sozinha já
+              // pode passar de milhares de caracteres), o corte de tamanho do
+              // prompt descarta o texto web inteiro antes da IA nem ver.
+              const combined = `${webContents.join('\n\n')}\n\n${transcription}`
+              const reIdentified = await identifyVehicleFromText(combined)
+              version = version || reIdentified.version || undefined
+              yearModel = yearModel || reIdentified.yearModel || undefined
+            }
+          } catch (err) {
+            console.error('[EXTRACT] Falha ao buscar fontes web pra identificação', err)
+          }
+        }
+
+        // Marca+modelo são o mínimo pra saber QUAL veículo é. Versão/trim, nem
+        // toda ficha nomeia (ex.: lançamento com configuração única) — nesse
+        // caso não travamos a extração por causa disso, só rotulamos honesto.
+        if (!brand || !model) {
+          await logAudit('extract', req, 'error', {}, 'Não foi possível identificar o veículo a partir do PDF')
+          return reply.status(422).send({
+            error: 'Unprocessable Entity',
+            message: 'Não conseguimos identificar marca/modelo a partir do PDF enviado. Preencha os campos manualmente e tente de novo.'
+          })
+        }
+        if (!version) version = 'Padrão'
+      }
+    } else {
+      pdfPath = findPdfPath(brand!, model!, version!)
     }
 
+    // Daqui pra frente tudo num try só — inclusive a busca do veículo existente
+    // no Oracle, que antes ficava fora de qualquer captura e podia virar um 500
+    // silencioso (sem linha de erro na auditoria) se o banco tropeçasse.
     try {
-      const { specs, source, pdfSourceFile, categoriesSearched } = await extractVehicleSpecs(
+      const normalized = normalizeVehicleIdentity({ brand: brand!, model: model!, version: version! })
+      brand = normalized.brand
+      model = normalized.model
+      version = normalized.version
+
+      const where: Record<string, unknown> = { brand, model, version }
+      if (yearModel != null) where.yearModel = yearModel
+
+      const existing = await vehicleRepo.findOne({ where, relations: ['spec'] })
+
+      const hasCategoryFilter = !!categories && categories.length > 0
+
+      // Um PDF enviado ou uma seleção de categorias mais restrita que o padrão
+      // são pedidos explícitos de (re)extração — não retornam do cache.
+      if (existing?.spec && !pdfBase64 && !hasCategoryFilter) {
+        await logAudit('extract', req, 'success', { brand, model, version, yearModel, source: 'db_cache' })
+        return reply.status(200).send({ vehicle: existing, spec: existing.spec, source: 'db_cache' })
+      }
+
+      const { specs, source, pdfSourceFile, categoriesSearched, provenance, aiEnabled } = await extractVehicleSpecs(
         brand, model, version, yearModel, pdfPath, pdfSourceType, pdfDisplayName, categories
       )
 
@@ -396,9 +475,12 @@ export async function vehicleRoutes(app: FastifyInstance) {
       await specRepo.save(spec)
 
       await logAudit('extract', req, 'success', {
-        brand, model, version, yearModel, source, pdfUploaded: !!pdfBase64, categoriesSearched
+        brand, model, version, yearModel, source, pdfUploaded: !!pdfBase64, categoriesSearched, aiEnabled
       })
-      return reply.status(existing?.spec ? 200 : 201).send({ vehicle, spec, source, categoriesSearched })
+      return reply.status(existing?.spec ? 200 : 201).send({
+        vehicle, spec, source, categoriesSearched, provenance, aiEnabled,
+        ...(aiEnabled ? {} : { aiDisabled: true, notice: 'IA desabilitada — só specs-base extraídas por regra, sem preenchimento por IA.' })
+      })
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'

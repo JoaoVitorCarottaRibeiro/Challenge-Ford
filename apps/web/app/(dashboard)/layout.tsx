@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from 'next-themes'
@@ -21,6 +21,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, logout, isLoading } = useAuth()
   const { theme, setTheme } = useTheme()
   const router = useRouter()
+  const pathname = usePathname()
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
 
@@ -74,7 +75,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon
-            const isActive = typeof window !== 'undefined' && window.location.pathname === item.href
+            const isActive = item.href === '/'
+              ? pathname === '/'
+              : pathname.startsWith(item.href)
             return (
               <Link key={item.href} href={item.href}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group"

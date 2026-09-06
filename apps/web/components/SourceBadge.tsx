@@ -12,6 +12,7 @@ export function SourceBadge({ source, detail, className = '' }: { source: string
 
   return (
     <div className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-2 ${className}`}
+      title={info.title}
       style={{ backgroundColor: `${info.color}20`, borderColor: info.color }}>
       {Icon && <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: info.color }} />}
       <span className="text-xs font-semibold" style={{ color: info.color }}>{info.text}</span>

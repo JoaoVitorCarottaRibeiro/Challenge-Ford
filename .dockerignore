@@ -1,0 +1,24 @@
+# Segredos — nunca entram na imagem. As variáveis reais vêm do ambiente de
+# execução (painel do Render/Vercel/Docker run), nunca de um arquivo copiado.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependências e artefatos — reinstalados/rebuildados dentro da imagem.
+**/node_modules
+**/dist
+.git
+
+# PDFs enviados por usuário e cache de transcrição — não fazem parte do build.
+apps/api/pdfs/uploads
+apps/api/pdfs/.cache
+
+# apps/mobile não é usado pelo Dockerfile (só apps/api) — mas o Dockerfile
+# copia apps/mobile/package.json pra resolver o workspace do pnpm, então só
+# esse arquivo escapa do ignore.
+apps/mobile/*
+!apps/mobile/package.json
+
+*.log
+.DS_Store
+Thumbs.db

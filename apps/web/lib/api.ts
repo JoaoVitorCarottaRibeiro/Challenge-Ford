@@ -1,6 +1,6 @@
 import axios from 'axios'
 import Cookies from 'js-cookie'
-import { createHmac } from 'crypto'
+import { setAccessToken, clearSession } from './auth-cookies'
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
@@ -11,15 +11,6 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
-
-  if (config.data && ['post', 'put', 'patch'].includes(config.method || '')) {
-    const body = JSON.stringify(config.data)
-    const signature = createHmac('sha256', process.env.NEXT_PUBLIC_HMAC_SECRET || '')
-      .update(body)
-      .digest('hex')
-    config.headers['X-Signature'] = `sha256=${signature}`
-  }
-
   return config
 })
 
@@ -34,12 +25,11 @@ api.interceptors.response.use(
             `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`,
             { refreshToken }
           )
-          Cookies.set('access_token', data.accessToken, { expires: 1 })
+          setAccessToken(data.accessToken)
           error.config.headers.Authorization = `Bearer ${data.accessToken}`
           return api.request(error.config)
         } catch {
-          Cookies.remove('access_token')
-          Cookies.remove('refresh_token')
+          clearSession()
           window.location.href = '/login'
         }
       } else {

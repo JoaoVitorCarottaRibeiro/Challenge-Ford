@@ -6,6 +6,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react'
 import api from '@/lib/api'
 import SpecReport from '@/components/SpecReport'
 import { HERO_FIELDS, SOURCE_LABEL, formatSpecValue } from '@/constants/specCategories'
+import { useAuth } from '@/context/AuthContext'
 
 interface Vehicle {
   id: string
@@ -19,6 +20,8 @@ interface Vehicle {
 export default function VehicleDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -52,9 +55,11 @@ export default function VehicleDetailPage() {
           style={{ color: 'var(--accent)' }}>
           <ArrowLeft className="w-4 h-4" /> Voltar
         </button>
-        <button onClick={handleDelete} className="p-2 rounded-lg hover:opacity-70">
-          <Trash2 className="w-4 h-4 text-red-500" />
-        </button>
+        {isAdmin && (
+          <button onClick={handleDelete} className="p-2 rounded-lg hover:opacity-70">
+            <Trash2 className="w-4 h-4 text-red-500" />
+          </button>
+        )}
       </div>
 
       <div className="rounded-2xl p-6 mb-5" style={{ backgroundColor: 'var(--primary)' }}>

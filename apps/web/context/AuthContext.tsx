@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import Cookies from 'js-cookie'
 import api from '@/lib/api'
+import { setSession, clearSession } from '@/lib/auth-cookies'
 
 interface User {
   email: string
@@ -37,17 +38,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function login(email: string, password: string) {
     const { data } = await api.post('/auth/login', { email, password })
-    Cookies.set('access_token', data.accessToken, { expires: 1 })
-    Cookies.set('refresh_token', data.refreshToken, { expires: 7 })
     const userData = { email, role: data.role }
-    Cookies.set('user', JSON.stringify(userData), { expires: 1 })
+    setSession({ accessToken: data.accessToken, refreshToken: data.refreshToken, user: userData })
     setUser(userData)
   }
 
   function logout() {
-    Cookies.remove('access_token')
-    Cookies.remove('refresh_token')
-    Cookies.remove('user')
+    clearSession()
     setUser(null)
   }
 

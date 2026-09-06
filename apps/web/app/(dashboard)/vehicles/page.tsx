@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Search, Trash2 } from 'lucide-react'
 import api from '@/lib/api'
 import { BrandBadge } from '@/components/BrandBadge'
+import { useAuth } from '@/context/AuthContext'
 
 interface Vehicle {
   id: string
@@ -16,6 +17,8 @@ interface Vehicle {
 }
 
 export default function VehiclesPage() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [search, setSearch] = useState('')
   const [selectedBrand, setSelectedBrand] = useState<string | null>(null)
@@ -117,10 +120,12 @@ export default function VehiclesPage() {
                 <span className="text-xs font-bold px-2.5 py-1 rounded-md"
                   style={{ color: 'var(--accent)', backgroundColor: 'var(--card-border)' }}>{v.spec.potenciaCv} cv</span>
               )}
-              <button onClick={e => handleDelete(e, v.id, `${v.brand} ${v.model} ${v.version}`)}
-                className="p-2 rounded-lg hover:opacity-70">
-                <Trash2 className="w-4 h-4 text-red-500" />
-              </button>
+              {isAdmin && (
+                <button onClick={e => handleDelete(e, v.id, `${v.brand} ${v.model} ${v.version}`)}
+                  className="p-2 rounded-lg hover:opacity-70">
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </button>
+              )}
             </Link>
           ))}
           {filtered.length === 0 && <p style={{ color: 'var(--muted)' }}>Nenhum veículo encontrado.</p>}

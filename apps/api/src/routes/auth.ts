@@ -1,10 +1,12 @@
 import { FastifyInstance } from 'fastify'
 import { authenticateUser, verifyToken, createUser } from '../services/auth'
 import { AppDataSource, User } from '@ford-intel/database'
+import { config } from '../config/env'
 
 export async function authRoutes(app: FastifyInstance) {
 
   app.post('/auth/login', {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       body: {
         type: 'object',
@@ -25,7 +27,7 @@ export async function authRoutes(app: FastifyInstance) {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         role: result.role,
-        expiresIn: process.env.JWT_EXPIRES_IN || '8h'
+        expiresIn: config.jwtExpiresIn
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro de autenticação'
@@ -67,7 +69,7 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.send({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        expiresIn: process.env.JWT_EXPIRES_IN || '8h'
+        expiresIn: config.jwtExpiresIn
       })
     } catch {
       return reply.status(401).send({ error: 'Token inválido ou expirado' })
@@ -75,6 +77,7 @@ export async function authRoutes(app: FastifyInstance) {
   })
 
   app.post('/auth/register', {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     schema: {
       body: {
         type: 'object',
@@ -96,7 +99,7 @@ export async function authRoutes(app: FastifyInstance) {
       adminKey: string
     }
 
-    if (adminKey !== process.env.API_KEY) {
+    if (adminKey !== config.apiKey) {
       return reply.status(403).send({ error: 'Forbidden', message: 'adminKey inválida' })
     }
 
