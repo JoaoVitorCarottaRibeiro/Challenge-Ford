@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { useAuth } from '@/context/AuthContext'
-import { Eye, EyeOff, ShieldCheck, Truck } from 'lucide-react'
+import { Eye, EyeOff, ShieldCheck } from 'lucide-react'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -33,13 +34,8 @@ export default function LoginPage() {
       {/* Coluna do formulário — fixa em claro, independente do tema do resto do app */}
       <div className="flex flex-col justify-center px-6 sm:px-12 lg:px-20 py-16">
         <div className="w-full max-w-sm mx-auto lg:mx-0">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 mb-8">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Ambiente Seguro
-          </div>
-
           <h1 className="text-3xl font-normal text-neutral-900 mb-2">
-            Acessar o Ford Pickup Intel
+            Bem-vindo(a)
           </h1>
           <p className="text-sm text-neutral-500 mb-10">
             Inteligência Competitiva Automotiva
@@ -95,9 +91,10 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="text-center text-xs text-neutral-400 mt-10">
-            Ford Pickup Intel © 2025 — FIAP
-          </p>
+          <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-neutral-500 mt-10">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Ambiente Seguro
+          </div>
         </div>
       </div>
 
@@ -110,10 +107,7 @@ export default function LoginPage() {
           style={{ background: '#5b7fd1' }} />
 
         <div className="relative flex flex-col items-center text-center px-10">
-          <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-6 bg-white/10 backdrop-blur-sm border border-white/20">
-            <Truck className="w-10 h-10 text-white" />
-          </div>
-          <h2 className="text-2xl font-semibold text-white mb-2">Ford Pickup Intel</h2>
+          <Image src="/fordiq-logo.png" alt="Fordiq" width={973} height={379} className="w-64 h-auto mb-6" priority />
           <p className="text-sm text-white/60 max-w-xs">
             Especificações técnicas padronizadas de toda a concorrência, em um só lugar.
           </p>

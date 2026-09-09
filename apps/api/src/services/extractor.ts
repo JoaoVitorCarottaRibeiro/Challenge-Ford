@@ -18,7 +18,15 @@ const INDEPENDENT_URLS: Record<string, string[]> = {
   'mitsubishi': ['https://www.icarros.com.br/mitsubishi/l200+triton/versoes/9791'],
   'ford':       ['https://www.icarros.com.br/ford/ranger/versoes/14091'],
   'volkswagen': ['https://www.icarros.com.br/volkswagen/amarok/versoes/9203'],
-  'chevrolet':  ['https://www.icarros.com.br/chevrolet/s10/versoes/9074'],
+  // Trocado de /chevrolet/s10/versoes/9074 (resolvia pra "WT Chassi Cabine", versão
+  // básica de chassi simples — nunca ia bater com "High Country" cadastrado).
+  'chevrolet':  ['https://www.icarros.com.br/catalogo/marcas/chevrolet/s10-cabine-dupla'],
+  // Sem fonte web nenhuma antes — extração dependia 100% do PDF oficial, que (como
+  // press kit) não traz preço. Confirmado manualmente que estas URLs resolvem pra
+  // versão certa (PRO-4X / Ranch / GS) antes de adicionar.
+  'nissan':     ['https://www.icarros.com.br/catalogo/marcas/nissan/frontier'],
+  'fiat':       ['https://www.icarros.com.br/fiat/titano'],
+  'byd':        ['https://icarros.com.br/byd/shark'],
 }
 
 interface SpecCategory {
@@ -266,6 +274,129 @@ async function collectWebSources(brand: string): Promise<{ contents: string[]; u
   return { contents, urls: successUrls }
 }
 
+// Erro específico pra PDF enviado que não é ficha técnica de veículo — a rota
+// distingue esse caso de uma falha genérica de extração e responde 400 em vez de 500.
+export class InvalidPdfError extends Error {}
+
+// Checagem barata (Haiku, poucos tokens) antes de gastar a extração completa: o
+// usuário pode enviar qualquer PDF pelo upload (ex.: currículo, nota fiscal) — sem
+// isso, o pipeline seguiria tentando extrair especificações de um documento que não
+// tem nada a ver, preenchendo tudo com null ou pior, chutando por conhecimento geral.
+async function isVehicleSpecDocument(pdfText: string, vehicleLabel: string): Promise<{ valid: boolean; reason?: string }> {
+  const message = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 200,
+    messages: [{
+      role: 'user',
+      content: `Um usuário enviou um PDF pra cadastrar a ficha técnica do veículo "${vehicleLabel}". Abaixo está o texto extraído desse PDF.
+
+Verifique se esse texto é realmente uma ficha técnica, press kit, catálogo ou tabela de especificações de um VEÍCULO AUTOMOTOR (carro, picape, SUV, moto) — mesmo que não seja exatamente a marca/versão pedida, mesmo que esteja incompleto.
+NÃO conta como ficha técnica: currículo, contrato, nota fiscal, boleto, manual de outro tipo de produto, artigo genérico, ou qualquer documento sem especificação técnica/equipamento de veículo.
+
+Documentos reais costumam ter capa, termos de garantia ou sumário antes da parte técnica —
+avalie o texto INTEIRO abaixo antes de decidir, não só o começo.
+
+Retorne APENAS este JSON, sem texto antes ou depois, sem markdown:
+{"isVehicleSpec": true ou false, "reason": "motivo breve em português"}
+
+Texto do documento:
+${pdfText.slice(0, 20000)}`
+    }]
+  })
+
+  const text = message.content[0].type === 'text' ? message.content[0].text : ''
+  const clean = text
+    .replace(/^```json\s*/m, '')
+    .replace(/^```\s*/m, '')
+    .replace(/```\s*$/m, '')
+    .trim()
+
+  try {
+    const parsed = JSON.parse(clean)
+    return { valid: parsed.isVehicleSpec !== false, reason: parsed.reason }
+  } catch {
+    // Falha técnica na checagem (JSON malformado, etc.) não deve travar uma
+    // extração legítima — segue o fluxo normal, que já prefere null a adivinhar.
+    return { valid: true }
+  }
+}
+
+function textFromMessage(message: Anthropic.Message): string {
+  return message.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map(b => b.text)
+    .join('\n')
+    .trim()
+}
+
+// Busca ativa na web (tool nativa da Anthropic, não um scraping fixo) — usada quando
+// não tem PDF nenhum (nem curado, nem enviado) e as URLs pré-configuradas de
+// OFFICIAL_URLS/INDEPENDENT_URLS não cobrem a marca. É o caminho pra alguém pedir a
+// ficha de um concorrente que a gente nunca cadastrou antes, sem precisar ter o PDF
+// em mãos: o próprio Claude pesquisa, prioriza fonte oficial/imprensa, e devolve o
+// conteúdo pra passar pelo mesmo funil de extração por categoria (com a mesma regra
+// de nunca misturar versão errada).
+async function searchWebForVehicle(vehicleLabel: string): Promise<string | null> {
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
+      messages: [{
+        role: 'user',
+        content: `Pesquise na web a ficha técnica do veículo "${vehicleLabel}", vendido no Brasil: motor, potência, torque, câmbio, tração, equipamentos de série, dimensões e preço. Priorize o site oficial do fabricante ou imprensa/press kit oficial; na falta desses, use agregadores confiáveis (iCarros, Webmotors, Tabela FIPE). Confirme que a fonte é exatamente dessa marca/modelo/versão/ano — nunca de uma versão diferente, mesmo que pareça mais completa. Resuma tudo que encontrar de forma objetiva, citando de onde veio cada informação.`
+      }]
+    })
+    const text = textFromMessage(message)
+    return text || null
+  } catch (err) {
+    console.error('[EXTRACT] Busca ativa na web falhou', vehicleLabel, err)
+    return null
+  }
+}
+
+// Busca ativa focada só no preço — roda como último recurso quando a extração normal
+// (PDF e/ou fontes web) não trouxe `preco_base_brl`. Fichas técnicas oficiais raramente
+// têm preço (é dado comercial, não técnico), então esse é o caminho padrão pra
+// preencher esse campo específico sem precisar de uma fonte configurada pra marca.
+async function searchOfficialPrice(vehicleLabel: string, version: string): Promise<number | null> {
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+      messages: [{
+        role: 'user',
+        content: `Pesquise na web o preço oficial/sugerido atual (à vista, em reais) do veículo "${vehicleLabel}" no Brasil. Use fontes confiáveis: site do fabricante, imprensa especializada, ou agregadores como iCarros/Webmotors.
+
+CUIDADO: um mesmo modelo quase sempre tem várias versões com preços parecidos, mas DIFERENTES (ex.: uma picape pode ter versão básica, intermediária e topo de linha, cada uma com preço próprio). Encontrar uma página sobre o modelo certo não é suficiente — o preço só vale se a fonte citar explicitamente a versão "${version}", não uma versão vizinha, mesmo que pareça parecida ou mais "óbvia" no resultado da busca. Se as fontes só mostrarem preço de outra versão ou do modelo em geral, sem essa versão específica, retorne null em vez de usar o preço de uma versão diferente.
+
+Depois de pesquisar, responda com APENAS este JSON, sem texto antes ou depois, sem markdown:
+{"preco_brl": number ou null, "versao_confirmada_na_fonte": "nome exato da versão como aparece na fonte, ou null se não achou essa versão específica"}`
+      }]
+    })
+    const text = textFromMessage(message)
+    const match = text.match(/\{[^{}]*"preco_brl"[^{}]*\}/)
+    if (!match) return null
+    const parsed = JSON.parse(match[0])
+    if (typeof parsed.preco_brl !== 'number') return null
+
+    // Guarda extra além do autojulgamento do modelo: a versão que ele diz ter
+    // confirmado na fonte precisa mencionar a versão pedida — sem isso, um preço de
+    // versão vizinha (ex.: Ranch em vez de Volcano) pode passar com confiança alta.
+    const foundVersion = String(parsed.versao_confirmada_na_fonte ?? '').toLowerCase()
+    const wantedVersion = version.toLowerCase()
+    if (!foundVersion || !foundVersion.includes(wantedVersion)) {
+      console.warn('[EXTRACT] Busca de preço descartada — versão da fonte não bate', { vehicleLabel, version, foundVersion })
+      return null
+    }
+    return parsed.preco_brl
+  } catch (err) {
+    console.error('[EXTRACT] Busca ativa de preço falhou', vehicleLabel, err)
+    return null
+  }
+}
+
 async function readPdfText(pdfPath: string): Promise<string> {
   const pdfBuffer = fs.readFileSync(pdfPath)
   const base64 = pdfBuffer.toString('base64')
@@ -371,20 +502,45 @@ export async function extractVehicleSpecs(
     }
   }
 
+  // Só valida PDF enviado pelo usuário — os PDFs curados em PDF_MAP já foram
+  // conferidos manualmente antes de entrar no catálogo (regra de ouro do projeto).
+  if (pdfText && pdfSourceType === 'upload') {
+    const check = await isVehicleSpecDocument(pdfText, vehicleLabel)
+    if (!check.valid) {
+      throw new InvalidPdfError(
+        `O arquivo enviado não parece ser uma ficha técnica de veículo${check.reason ? ` (${check.reason})` : ''}. Envie a ficha técnica oficial do veículo.`
+      )
+    }
+  }
+
   const { contents: webContents, urls: webUrls } = await collectWebSources(brand)
+
+  // Sem PDF nenhum e sem nenhuma URL pré-configurada pra marca que tenha retornado
+  // conteúdo: em vez de cair direto pro "chute" da IA (ia_generated), busca ativamente
+  // na web por uma fonte oficial/confiável antes de desistir. É o caminho pra qualquer
+  // marca/versão que a gente nunca configurou manualmente.
+  let activeSearchText: string | null = null
+  if (!pdfText && webContents.length === 0) {
+    activeSearchText = await searchWebForVehicle(vehicleLabel)
+  }
 
   const sourceBlocks: string[] = []
   if (pdfText) sourceBlocks.push(`=== FONTE OFICIAL (ficha técnica em PDF) ===\n${pdfText}`)
   sourceBlocks.push(...webContents)
+  if (activeSearchText) sourceBlocks.push(`=== Busca ativa na web ===\n${activeSearchText}`)
 
   const source: ExtractionResult['source'] = pdfText
     ? (pdfSourceType === 'upload' ? 'pdf_upload' : 'pdf_oficial')
-    : webContents.length > 0
+    : webContents.length > 0 || activeSearchText
       ? 'web_scraping'
       : 'ia_generated'
 
+  // 24000 cortava fontes que vêm depois do PDF quando a marca tem várias URLs
+  // configuradas (ex.: Ford tem 2 OFFICIAL_URLS sem preço, empurrando o trecho do
+  // iCarros — que tem o preço — pra fora do corte). 60000 dá espaço confortável
+  // para PDF (~12-16k) + múltiplas fontes web (~6k cada) sem perder conteúdo tardio.
   const sourcesText = sourceBlocks.length > 0
-    ? sourceBlocks.join('\n\n').substring(0, 24000)
+    ? sourceBlocks.join('\n\n').substring(0, 60000)
     : `Nenhuma fonte externa disponível. Use seu conhecimento geral sobre o mercado automotivo brasileiro para estimar as especificações de: ${vehicleLabel}. Se não tiver certeza de um dado, retorne null.`
 
   const categoryResults = await Promise.all(
@@ -393,8 +549,32 @@ export async function extractVehicleSpecs(
 
   const specs: Record<string, unknown> = Object.assign({}, ...categoryResults)
 
+  // Preço quase nunca vem de ficha técnica oficial (é dado comercial, não técnico).
+  const priceCategoryRequested = activeCategories.some(c => c.name === 'Utilidade e Garantia')
+  if (priceCategoryRequested) {
+    if (!pdfText) {
+      // Sem PDF, o preço que a extração por categoria tirou do scraping de URL fixa
+      // não é confiável o bastante: a URL configurada aponta pra UM trim específico
+      // (ex.: Fiat sempre resolve pra "Ranch"), e mesmo com instrução explícita de
+      // nunca misturar versão, já vimos o modelo atribuir por engano o preço desse
+      // trim fixo pra outra versão pedida (Volcano puxando o valor da Ranch, achado
+      // testando manualmente). Por isso, sem PDF o preço SEMPRE vem da busca ativa
+      // com verificação de versão — nunca do resultado bruto do scraping — mesmo que
+      // a extração normal já tenha preenchido algo.
+      specs['preco_base_brl'] = await searchOfficialPrice(vehicleLabel, version)
+    } else if (specs['preco_base_brl'] == null) {
+      // PDF existe mas não trouxe preço (o caso comum) — busca ativamente antes de desistir.
+      const price = await searchOfficialPrice(vehicleLabel, version)
+      if (price != null) specs['preco_base_brl'] = price
+    }
+  }
+
   const pdfSourceFile = pdfText && pdfPath ? (pdfDisplayName ?? path.basename(pdfPath)) : null
-  specs.source_urls = pdfSourceFile ? [pdfSourceFile, ...webUrls] : (webUrls.length ? webUrls : ['claude_knowledge'])
+  specs.source_urls = pdfSourceFile
+    ? [pdfSourceFile, ...webUrls]
+    : webUrls.length
+      ? webUrls
+      : [activeSearchText ? 'busca_ativa_web' : 'claude_knowledge']
   specs.search_queries = webUrls.map(u => `fetch: ${u}`)
 
   return { specs, source, pdfSourceFile, categoriesSearched: activeCategories.map(c => c.name) }

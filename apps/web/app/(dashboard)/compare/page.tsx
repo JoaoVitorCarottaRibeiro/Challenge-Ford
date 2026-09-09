@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Scale } from 'lucide-react'
+import { X } from 'lucide-react'
 import api from '@/lib/api'
 import SpecReport from '@/components/SpecReport'
 import { HERO_FIELDS, formatSpecValue } from '@/constants/specCategories'
@@ -37,7 +37,16 @@ export default function ComparePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--foreground)' }}>Comparativo</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Comparativo</h1>
+        {(idA || idB) && (
+          <button onClick={() => { setIdA(''); setIdB('') }}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+            style={{ color: 'var(--muted)', backgroundColor: 'var(--card)', border: '1px solid var(--card-border)' }}>
+            <X className="w-3.5 h-3.5" /> Limpar seleção
+          </button>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-center mb-8">
         <select value={idA} onChange={e => setIdA(e.target.value)}
@@ -51,7 +60,7 @@ export default function ComparePage() {
 
         <select value={idB} onChange={e => setIdB(e.target.value)}
           className="rounded-xl border px-4 py-3 text-sm outline-none"
-          style={{ backgroundColor: 'var(--card)', borderColor: '#8b5cf6', color: 'var(--foreground)' }}>
+          style={{ backgroundColor: 'var(--card)', borderColor: '#3b82f6', color: 'var(--foreground)' }}>
           <option value="">Veículo B — selecionar</option>
           {vehicles.map(v => <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>)}
         </select>
@@ -89,7 +98,6 @@ export default function ComparePage() {
       ) : (
         !loading && (
           <div className="text-center mt-16">
-            <Scale className="w-10 h-10 mx-auto mb-4" style={{ color: 'var(--muted)' }} />
             <p className="text-lg font-bold mb-2" style={{ color: 'var(--foreground)' }}>Compare dois veículos</p>
             <p className="text-sm" style={{ color: 'var(--muted)' }}>Selecione dois veículos acima para ver o comparativo completo</p>
           </div>

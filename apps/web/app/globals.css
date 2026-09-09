@@ -9,6 +9,9 @@
   --primary-foreground: #ffffff;
   --muted: #737373;
   --accent: #3b82f6;
+  --hero-bg: var(--primary);
+  --hero-fg: #ffffff;
+  --hero-fg-muted: rgba(255, 255, 255, 0.7);
 }
 
 .dark {
@@ -20,6 +23,9 @@
   --primary-foreground: #ffffff;
   --muted: #9ca3af;
   --accent: #60a5fa;
+  --hero-bg: #ffffff;
+  --hero-fg: #0a0a0a;
+  --hero-fg-muted: rgba(10, 10, 10, 0.6);
 }
 
 body {

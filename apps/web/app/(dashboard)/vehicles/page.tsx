@@ -115,7 +115,7 @@ export default function VehiclesPage() {
               </div>
               {v.spec?.potenciaCv && (
                 <span className="text-xs font-bold px-2.5 py-1 rounded-md"
-                  style={{ color: 'var(--accent)', backgroundColor: 'var(--card-border)' }}>{v.spec.potenciaCv} cv</span>
+                  style={{ color: 'var(--primary)', backgroundColor: 'var(--card-border)' }}>{v.spec.potenciaCv} cv</span>
               )}
               <button onClick={e => handleDelete(e, v.id, `${v.brand} ${v.model} ${v.version}`)}
                 className="p-2 rounded-lg hover:opacity-70">

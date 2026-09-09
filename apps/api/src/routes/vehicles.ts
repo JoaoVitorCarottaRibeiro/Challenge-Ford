@@ -3,7 +3,7 @@ import { DeepPartial } from 'typeorm'
 import { AppDataSource } from '@ford-intel/database'
 import { Vehicle } from '@ford-intel/database'
 import { VehicleSpec } from '@ford-intel/database'
-import { extractVehicleSpecs } from '../services/extractor'
+import { extractVehicleSpecs, InvalidPdfError } from '../services/extractor'
 import { logAudit } from '../services/audit'
 import { authenticate, requireRole, AuthenticatedRequest } from '../middlewares/rbac'
 import { verifyHmac } from '../middlewares/hmac'
@@ -66,7 +66,7 @@ const PDF_MAP: Record<string, string> = {
   'byd-shark-gs':                  'fichaShark.pdf',
 }
 
-function findPdfPath(brand: string, model: string, version: string): string | null {
+export function findPdfPath(brand: string, model: string, version: string): string | null {
   const key = `${brand}-${model}-${version}`
     .toLowerCase()
     .replace(/\s+/g, ' ')
@@ -77,7 +77,7 @@ function findPdfPath(brand: string, model: string, version: string): string | nu
   return fs.existsSync(fullPath) ? fullPath : null
 }
 
-function mapSpecsToEntity(s: Record<string, unknown>) {
+export function mapSpecsToEntity(s: Record<string, unknown>) {
   const b = (v: unknown): number | undefined => (v === null || v === undefined) ? undefined : Number(v)
   const n = (v: unknown): number | undefined => (v === null || v === undefined) ? undefined : Number(v)
 
@@ -404,6 +404,9 @@ export async function vehicleRoutes(app: FastifyInstance) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
       console.error('[EXTRACT ERROR]', err)
       await logAudit('extract', req, 'error', { brand, model, version, yearModel }, msg)
+      if (err instanceof InvalidPdfError) {
+        return reply.status(400).send({ error: 'PDF inválido', message: msg })
+      }
       return reply.status(500).send({ error: 'Falha na extração', message: msg })
     }
   })

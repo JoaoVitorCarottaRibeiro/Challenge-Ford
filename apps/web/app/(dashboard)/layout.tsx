@@ -1,26 +1,25 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from 'next-themes'
-import {
-  LayoutDashboard, Car, GitCompare, Sparkles,
-  LogOut, Sun, Moon, ChevronRight, ChevronUp
-} from 'lucide-react'
+import { LogOut, Sun, Moon, ChevronUp } from 'lucide-react'
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/vehicles', label: 'Veículos', icon: Car },
-  { href: '/compare', label: 'Comparativo', icon: GitCompare },
-  { href: '/extract', label: 'Extrair Specs', icon: Sparkles },
+  { href: '/', label: 'Dashboard' },
+  { href: '/vehicles', label: 'Veículos' },
+  { href: '/compare', label: 'Comparativo' },
+  { href: '/extract', label: 'Extrair Specs' },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, isLoading } = useAuth()
   const { theme, setTheme } = useTheme()
   const router = useRouter()
+  const pathname = usePathname()
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
 
@@ -54,37 +53,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className="w-64 flex flex-col border-r fixed h-full"
         style={{ backgroundColor: 'var(--card)', borderColor: 'var(--card-border)' }}>
 
-        <div className="p-6 border-b" style={{ borderColor: 'var(--card-border)' }}>
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary)' }}>
-              <Car className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <p className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>
-                Ford Pickup Intel
-              </p>
-              <p className="text-xs" style={{ color: 'var(--muted)' }}>
-                Inteligência Competitiva
-              </p>
-            </div>
-          </div>
+        <div className="p-6 border-b flex items-center" style={{ borderColor: 'var(--card-border)' }}>
+          <Link href="/">
+            <Image src="/fordiq-logo.png" alt="Fordiq" width={973} height={379} className="h-8 w-auto" priority />
+          </Link>
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map((item) => {
-            const Icon = item.icon
-            const isActive = typeof window !== 'undefined' && window.location.pathname === item.href
+            const isActive = pathname === item.href
             return (
               <Link key={item.href} href={item.href}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group"
+                className="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
                 style={{
                   backgroundColor: isActive ? 'var(--primary)' : 'transparent',
                   color: isActive ? 'white' : 'var(--muted)'
                 }}>
-                <Icon className="w-4 h-4" />
                 {item.label}
-                <ChevronRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
               </Link>
             )
           })}
