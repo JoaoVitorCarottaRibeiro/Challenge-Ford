@@ -81,7 +81,7 @@ flowchart LR
 ## 2. Segurança em Código e Infraestrutura (peso 2,5)
 
 Toda a lista abaixo é evidência de correções **reais**, aplicadas no código deste repositório
-durante o desenvolvimento do projeto (commits `146eb6e` e `12e0e64`).
+durante o desenvolvimento do projeto.
 
 ![Histórico de commits e arquivos alterados](./assets/commits.png)
 <!-- gerado com: git log --oneline -3  &&  git show --stat HEAD -->
