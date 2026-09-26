@@ -81,7 +81,10 @@ flowchart LR
 ## 2. Segurança em Código e Infraestrutura (peso 2,5)
 
 Toda a lista abaixo é evidência de correções **reais**, aplicadas no código deste repositório
-durante o desenvolvimento do projeto (commit `146eb6e` e ajustes complementares desta sessão).
+durante o desenvolvimento do projeto (commits `146eb6e` e `12e0e64`).
+
+![Histórico de commits e arquivos alterados](./assets/commits.png)
+<!-- gerado com: git log --oneline -3  &&  git show --stat HEAD -->
 
 ### Criptografia local
 
@@ -219,8 +222,8 @@ Os 403/401 registrados são majoritariamente do próprio teste de RBAC (usuário
 `POST /extract`, que corretamente resulta em 403) — o dashboard mostra os controles de acesso
 *funcionando*, não uma falha de segurança.
 
-> Print de tela: rode `pnpm dev:api && pnpm dev:web`, logue como admin, acesse `/security` — a
-> tela está funcional e pode ser capturada localmente para anexar à entrega.
+![Dashboard de segurança em /security](./assets/security-dashboard.png)
+
 
 **Exemplo real do ciclo detectar → corrigir, dentro desta própria sessão**: ao testar a tela,
 percebemos duas falhas de observabilidade e corrigimos na hora:
@@ -325,12 +328,3 @@ dias) — falta automatizar a chamada periódica (fica no plano de segurança co
 | Auditoria de permissões | Trimestral | Consultar tabela `users` (`SELECT email, role FROM users`) — hoje manual, endpoint dedicado é trabalho futuro |
 | Backup e recuperação | Gerenciado pela FIAP (Oracle institucional) | O time **não** administra backup do banco — decisão consciente, registrada aqui em vez de omitida. Para o código-fonte, o backup é o próprio Git (histórico completo + remoto no GitHub) |
 
----
-
-## Checklist de conformidade final
-
-- [x] **Pipeline DevSecOps Integrado** — documento + diagrama Mermaid + explicação por etapa (seção 1)
-- [x] **Segurança em Código e Infraestrutura** — evidências reais de criptografia, hardening de API, RBAC e IaC (seção 2)
-- [x] **Observabilidade, Monitoramento e Resposta** — logs estruturados existentes + dashboard real (`/security`) com dados ao vivo + plano de resposta a incidentes (seção 3)
-- [x] **Compliance, Riscos e Segurança Contínua** — mapeamento OWASP ASVS/API Top 10/Mobile Top 10, LGPD, STRIDE e plano de segurança contínua (seção 4)
-- [x] Gaps identificados **honestamente**, não escondidos: revogação de token, prompt injection na extração via IA, alerta automático do dashboard, pipeline CI ainda não implementado como workflow real
