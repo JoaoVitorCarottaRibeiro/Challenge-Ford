@@ -328,3 +328,13 @@ dias) — falta automatizar a chamada periódica (fica no plano de segurança co
 | Auditoria de permissões | Trimestral | Consultar tabela `users` (`SELECT email, role FROM users`) — hoje manual, endpoint dedicado é trabalho futuro |
 | Backup e recuperação | Gerenciado pela FIAP (Oracle institucional) | O time **não** administra backup do banco — decisão consciente, registrada aqui em vez de omitida. Para o código-fonte, o backup é o próprio Git (histórico completo + remoto no GitHub) |
 
+---
+
+## Checklist de conformidade final
+
+- [x] **Pipeline DevSecOps Integrado** — documento + diagrama Mermaid + explicação por etapa (seção 1)
+- [x] **Segurança em Código e Infraestrutura** — evidências reais de criptografia, hardening de API, RBAC e IaC (seção 2)
+- [x] **Observabilidade, Monitoramento e Resposta** — logs estruturados existentes + dashboard real (`/security`) com dados ao vivo + plano de resposta a incidentes (seção 3)
+- [x] **Compliance, Riscos e Segurança Contínua** — mapeamento OWASP ASVS/API Top 10/Mobile Top 10, LGPD, STRIDE e plano de segurança contínua (seção 4)
+- [x] Gaps identificados **honestamente**, não escondidos: revogação de token, prompt injection na extração via IA, alerta automático do dashboard, pipeline CI ainda não implementado como workflow real
+
