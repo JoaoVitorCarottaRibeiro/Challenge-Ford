@@ -61,6 +61,8 @@ export async function authenticateUser(
   const now = new Date()
   if (user.lockedUntil && user.lockedUntil > now) {
     const minutes = Math.ceil((user.lockedUntil.getTime() - now.getTime()) / 60000)
+    await logAudit('login_failed', req, 'error', { email },
+      `Conta bloqueada — tentativa durante o bloqueio (${minutes} min restantes)`)
     throw new Error(`Conta bloqueada. Tente novamente em ${minutes} minuto(s)`)
   }
 

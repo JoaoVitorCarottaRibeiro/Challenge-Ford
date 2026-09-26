@@ -2,19 +2,6 @@ import axios from 'axios'
 import { Platform } from 'react-native'
 
 const API_URL = 'https://fordchallenge-docar.onrender.com/api'
-const HMAC_SECRET = 'ford-intel-hmac-secret-2025'
-
-async function generateHmac(body: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const keyData = encoder.encode(HMAC_SECRET)
-  const messageData = encoder.encode(body)
-  const key = await crypto.subtle.importKey(
-    'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  )
-  const signature = await crypto.subtle.sign('HMAC', key, messageData)
-  const hashArray = Array.from(new Uint8Array(signature))
-  return 'sha256=' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-}
 
 /**
  * Storage universal — SecureStore no nativo, localStorage na web.
@@ -51,12 +38,6 @@ api.interceptors.request.use(async (config) => {
   const token = await storage.get('access_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
-  }
-
-  if (config.data && ['post', 'put', 'patch'].includes(config.method || '')) {
-    const body = JSON.stringify(config.data)
-    const signature = await generateHmac(body)
-    config.headers['X-Signature'] = signature
   }
 
   return config

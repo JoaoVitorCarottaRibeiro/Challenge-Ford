@@ -6,15 +6,16 @@ import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from 'next-themes'
 import {
-  LayoutDashboard, Car, GitCompare, Sparkles,
+  LayoutDashboard, Car, GitCompare, Sparkles, ShieldAlert,
   LogOut, Sun, Moon, ChevronRight, ChevronUp
 } from 'lucide-react'
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/vehicles', label: 'Veículos', icon: Car },
-  { href: '/compare', label: 'Comparativo', icon: GitCompare },
-  { href: '/extract', label: 'Extrair Specs', icon: Sparkles },
+  { href: '/', label: 'Dashboard', icon: LayoutDashboard, adminOnly: false },
+  { href: '/vehicles', label: 'Veículos', icon: Car, adminOnly: false },
+  { href: '/compare', label: 'Comparativo', icon: GitCompare, adminOnly: false },
+  { href: '/extract', label: 'Extrair Specs', icon: Sparkles, adminOnly: false },
+  { href: '/security', label: 'Segurança', icon: ShieldAlert, adminOnly: true },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -73,7 +74,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => {
+          {navItems.filter(item => !item.adminOnly || user.role === 'admin').map((item) => {
             const Icon = item.icon
             const isActive = item.href === '/'
               ? pathname === '/'

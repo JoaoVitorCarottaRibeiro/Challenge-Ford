@@ -180,12 +180,34 @@ O que mudou:
   `openssl rand -hex N`.
 - Dependências mortas removidas: `@google/generative-ai`, `@fastify/jwt` (nenhuma nunca foi importada).
 
-**Não mudou / ainda pendente**: `apps/mobile/services/api.ts` ainda tem o mesmo bloco de assinatura
-HMAC + um secret hardcoded no código (`ford-intel-hmac-secret-2025`) — mobile ficou fora do escopo
-desta sessão (foco foi `apps/web`). A senha do Oracle FIAP (`DB_USER=rm558396`/`DB_PASS=190305`)
-ficou commitada no `.env.example` da raiz desde o commit inicial — já tirada dos arquivos atuais,
-mas ainda existe no histórico do git; reescrever a história (ou não) é decisão do time, não foi
-feito sozinho porque afeta o clone de quem mais estiver no repo.
+**Atualização**: o HMAC do `apps/mobile/services/api.ts` (mesmo secret hardcoded
+`ford-intel-hmac-secret-2025`) **já foi removido** também, na sessão da Sprint 3 de Cybersecurity —
+mobile deixou de ser exceção. A senha do Oracle FIAP (`DB_USER=rm558396`/`DB_PASS=190305`) ficou
+commitada no `.env.example` da raiz desde o commit inicial — já tirada dos arquivos atuais, mas
+ainda existe no histórico do git; reescrever a história (ou não) é decisão do time, não foi feito
+sozinho porque afeta o clone de quem mais estiver no repo.
+
+## Sprint 3 — Cybersecurity (DevSecOps)
+
+Documento completo em [`docs/SPRINT3-CYBERSECURITY.md`](../docs/SPRINT3-CYBERSECURITY.md) —
+pipeline DevSecOps (desenho, sem workflow real ainda), evidências de hardening, observabilidade e
+compliance (OWASP ASVS/API Top 10/Mobile Top 10, LGPD, STRIDE, plano de segurança contínua).
+
+Duas coisas novas nessa sessão, além do documento:
+- **`apps/web/app/(dashboard)/security/page.tsx`** — rota `/security`, admin-only (escondida do
+  nav e redireciona `analyst` pra `/`), dashboard real (não mockup) sobre `GET
+  /api/admin/audit-logs` e `GET /api/admin/suspicious` — eventos por tipo, IPs de alto risco,
+  falhas recentes.
+- **`Dockerfile`** hardenizado: `NODE_ENV=production` explícito (sem isso o guard de
+  `synchronize` em `data-source.ts` não tinha efeito nenhum dentro do container), usuário
+  não-root (`USER node`), `HEALTHCHECK` batendo em `/health`. Não testado com build real (Docker
+  não instalado na máquina de dev usada).
+
+Gaps identificados de propósito e **não** corrigidos nesta sessão (documentados no próprio
+`docs/SPRINT3-CYBERSECURITY.md`, não escondidos): sem blacklist/revogação de refresh token antes da
+expiração natural; prompt de `identifyVehicleFromText`/`extractCategory` não isola explicitamente
+texto de PDF/web de terceiro como "dado, não instrução" (risco de prompt injection, impacto baixo
+hoje); dashboard de `/security` é *pull*, não notifica sozinho.
 
 ## Como rodar localmente
 
@@ -212,4 +234,4 @@ pnpm dev:web          # apps/web/.env.local precisa só de NEXT_PUBLIC_API_URL (
 - Ideia discutida (não implementada): usar a Tabela FIPE (API pública `parallelum.com.br/fipe`) como catálogo de identidade limpo (marca/modelo/ano) para alimentar autocomplete — não tem dado técnico, só serve pra evitar erro de digitação/duplicata.
 - Precisão de dado (ex.: torque da Hilux SRX vindo com casa decimal quebrada tipo 498,82 Nm em vez de 500) foi identificada mas deixada **fora de escopo de propósito** na sessão de segurança/extração — próximo passo natural.
 - Decisão pendente do time: reescrever ou não o histórico do git pra remover a credencial Oracle FIAP commitada no commit inicial (ver seção Segurança acima).
-- `apps/mobile` não recebeu a limpeza de HMAC feita no `apps/web` — mesmo padrão de correção se algum dia o mobile voltar a ser prioridade.
+- Gaps de segurança identificados na Sprint 3 e ainda não corrigidos: revogação de refresh token, prompt injection na extração via IA, alerta automático pro dashboard de `/security` (hoje é *pull*). Ver `docs/SPRINT3-CYBERSECURITY.md`.
